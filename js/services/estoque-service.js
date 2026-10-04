@@ -1,5 +1,6 @@
 import { apiRequest } from './api-service.js';
-import { calcularStatus, updateProdutoStatus } from './produto-service.js';
+import { calcularStatus, quantidadeValida } from '../domain/regras.js';
+import { updateProdutoStatus } from './produto-service.js';
 
 /**
  * Busca todos os registros de estoque
@@ -10,62 +11,48 @@ export async function getEstoque() {
 
 /**
  * Busca o item de estoque correspondente a um determinado produto
- * @param {string} produtoId 
+ * @param {string} produtoId
  */
 export async function getEstoqueByProdutoId(produtoId) {
-    const itens = await apiRequest(`/estoque?produtoId=${produtoId}`);
+    const itens = await apiRequest(`/estoque?produtoId=${encodeURIComponent(produtoId)}`);
     return Array.isArray(itens) && itens.length > 0 ? itens[0] : null;
 }
 
 /**
- * Atualiza ou cria o registro de estoque e sincroniza o status do produto
- * @param {string} produtoId 
- * @param {number} novaQuantidade 
+ * Atualiza ou cria o registro de estoque e RECALCULA o status do produto (propriedade derivada).
+ * @param {string} produtoId
+ * @param {number} novaQuantidade
  */
 export async function updateEstoqueQuantidade(produtoId, novaQuantidade) {
-    // Garante valor numérico e não negativo
-    const quantidadeSanitizada = Math.max(0, Number(novaQuantidade) || 0);
+    // Garante inteiro não negativo
+    const quantidadeSanitizada = quantidadeValida(novaQuantidade);
     const itemEstoque = await getEstoqueByProdutoId(produtoId);
     const dataAtual = new Date().toISOString();
     let result;
 
     if (itemEstoque) {
-        result = await apiRequest(`/estoque/${itemEstoque.id}`, 'PATCH', {
+        result = await apiRequest(`/estoque/${encodeURIComponent(itemEstoque.id)}`, 'PATCH', {
             quantidade: quantidadeSanitizada,
-            atualizadoEm: dataAtual
+            atualizadoEm: dataAtual,
         });
     } else {
         result = await apiRequest('/estoque', 'POST', {
             produtoId,
             quantidade: quantidadeSanitizada,
-            atualizadoEm: dataAtual
+            atualizadoEm: dataAtual,
         });
     }
 
-    // REGRA DE NEGÓCIO: Recalcula e atualiza o status do produto automaticamente
-    const novoStatus = calcularStatus(quantidadeSanitizada);
-    await updateProdutoStatus(produtoId, novoStatus);
+    // REGRA DE NEGÓCIO: recalcula e grava o status do produto a partir da nova quantidade
+    await updateProdutoStatus(produtoId, calcularStatus(quantidadeSanitizada));
 
     return result;
 }
 
 /**
- * Dá baixa no estoque de um produto (ex: ao processar um novo pedido)
- * @param {string} produtoId 
- * @param {number} quantidadeAbatida 
- */
-export async function darBaixaEstoque(produtoId, quantidadeAbatida) {
-    const itemEstoque = await getEstoqueByProdutoId(produtoId);
-    const quantidadeAtual = itemEstoque ? Number(itemEstoque.quantidade) : 0;
-    const novaQtd = Math.max(0, quantidadeAtual - Number(quantidadeAbatida));
-
-    return await updateEstoqueQuantidade(produtoId, novaQtd);
-}
-
-/**
  * Remove um registro de estoque pelo ID
- * @param {string} id 
+ * @param {string} id
  */
 export async function deleteEstoque(id) {
-    return await apiRequest(`/estoque/${id}`, 'DELETE');
+    return await apiRequest(`/estoque/${encodeURIComponent(id)}`, 'DELETE');
 }

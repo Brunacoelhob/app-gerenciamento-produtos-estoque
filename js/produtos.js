@@ -1,5 +1,7 @@
 import { getProdutos, createProduto, updateProduto, deleteProduto, getProdutoById } from './services/produto-service.js';
-import { getEstoqueByProdutoId, updateEstoqueQuantidade } from './services/estoque-service.js';
+import { getEstoqueByProdutoId, updateEstoqueQuantidade, deleteEstoque } from './services/estoque-service.js';
+import { classeBadge } from './domain/regras.js';
+import { esc } from './utils/html.js';
 import { showToast } from './components/toast.js';
 import { confirmAction } from './components/modal-confirm.js';
 import { getTableSkeleton } from './components/skeleton-loader.js';
@@ -28,20 +30,18 @@ function renderTabela(lista) {
     }
 
     tbody.innerHTML = lista.map(p => {
-        let badgeClass = 'badge-disponivel';
-        if (p.status === 'Estoque baixo') badgeClass = 'badge-baixo';
-        if (p.status === 'Indisponível') badgeClass = 'badge-indisponivel';
+        const badgeClass = classeBadge(p.status);
 
         return `
       <tr>
-        <td><code>${p.id}</code></td>
-        <td><strong>${p.nome}</strong></td>
-        <td>${p.categoria}</td>
+        <td><code>${esc(p.id)}</code></td>
+        <td><strong>${esc(p.nome)}</strong></td>
+        <td>${esc(p.categoria)}</td>
         <td>R$ ${Number(p.preco).toFixed(2)}</td>
-        <td><span class="badge ${badgeClass}">${p.status || 'N/A'}</span></td>
+        <td><span class="badge ${badgeClass}">${esc(p.status || 'N/A')}</span></td>
         <td class="actions-cell">
-          <button class="btn btn-secondary btn-edit" data-id="${p.id}">Editar</button>
-          <button class="btn btn-danger btn-del" data-id="${p.id}">Excluir</button>
+          <button class="btn btn-secondary btn-edit" data-id="${esc(p.id)}">Editar</button>
+          <button class="btn btn-danger btn-del" data-id="${esc(p.id)}">Excluir</button>
         </td>
       </tr>
     `;
@@ -124,9 +124,10 @@ tbody.addEventListener('click', async (e) => {
         );
         if (confirmou) {
             try {
-                await deleteProduto(id);
+                // Remove primeiro o estoque do produto (evita registro órfão) e depois o produto.
                 const est = await getEstoqueByProdutoId(id);
-                if (est) await updateEstoqueQuantidade(id, 0); // Limpa relação de estoque
+                if (est) await deleteEstoque(est.id);
+                await deleteProduto(id);
                 showToast('Produto removido!');
                 carregarProdutos();
             } catch (err) {

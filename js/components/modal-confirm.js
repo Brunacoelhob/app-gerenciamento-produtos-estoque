@@ -1,3 +1,5 @@
+import { esc } from '../utils/html.js';
+
 /**
  * Abre modal de confirmação
  * @param {string} title 
@@ -9,8 +11,8 @@ export function confirmAction(title, message) {
         const modalHtml = `
       <div class="modal-overlay" id="confirm-modal">
         <div class="glass-card modal-body">
-          <h3 style="margin-bottom: 0.5rem">${title}</h3>
-          <p style="color: var(--text-muted); margin-bottom: 1.5rem">${message}</p>
+          <h3 style="margin-bottom: 0.5rem">${esc(title)}</h3>
+          <p style="color: var(--text-muted); margin-bottom: 1.5rem">${esc(message)}</p>
           <div style="display: flex; gap: 0.5rem; justify-content: flex-end">
             <button class="btn btn-secondary" id="btn-modal-cancel">Cancelar</button>
             <button class="btn btn-danger" id="btn-modal-confirm">Confirmar</button>

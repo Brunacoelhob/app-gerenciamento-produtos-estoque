@@ -1,0 +1,7 @@
+node_modules/
+# Banco local editado pelo json-server (gerado a partir de db.seed.json)
+db.json
+.env
+.vscode/
+.idea/
+.DS_Store

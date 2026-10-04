@@ -1,5 +1,7 @@
-import { apiRequest } from './api-service.js';
+import { apiRequest, ApiError } from './api-service.js';
+import { getProdutoById } from './produto-service.js';
 import { getEstoqueByProdutoId, updateEstoqueQuantidade } from './estoque-service.js';
+import { calcularTotal, pedidoCancelado, quantidadeValida } from '../domain/regras.js';
 
 /**
  * Busca todos os pedidos cadastrados
@@ -10,70 +12,89 @@ export async function getPedidos() {
 
 /**
  * Busca um pedido específico pelo ID
- * @param {string} id 
+ * @param {string} id
  */
 export async function getPedidoById(id) {
-    return await apiRequest(`/pedidos/${id}`);
+    return await apiRequest(`/pedidos/${encodeURIComponent(id)}`);
 }
 
 /**
- * Cria um pedido, abate os itens do estoque e reavalia o status dos produtos
- * @param {Object} pedidoData - Estrutura do pedido com cliente e array de itens
+ * Cria um pedido, abate os itens do estoque e reavalia o status dos produtos.
+ *
+ * Segurança/integridade: o preço e o total NUNCA são confiados ao navegador; são lidos do cadastro
+ * de produtos no momento da compra. Itens repetidos do mesmo produto são somados antes de validar.
+ *
+ * @param {{cliente: string, itens: Array<{produtoId: string, quantidade: number}>}} pedidoData
  */
 export async function createPedido(pedidoData) {
-    if (!pedidoData.itens || pedidoData.itens.length === 0) {
+    const cliente = String(pedidoData.cliente ?? '').trim();
+    if (!cliente) throw new Error('Informe o nome do cliente.');
+    if (!Array.isArray(pedidoData.itens) || pedidoData.itens.length === 0) {
         throw new Error('O pedido precisa conter pelo menos um item.');
     }
 
-    // 1. Valida se há estoque suficiente para TODOS os itens antes de processar
+    // Consolida itens repetidos e valida quantidades
+    const porProduto = new Map();
     for (const item of pedidoData.itens) {
-        const estoque = await getEstoqueByProdutoId(item.produtoId);
-        const qtdAtual = estoque ? Number(estoque.quantidade) : 0;
+        const qtd = quantidadeValida(item.quantidade);
+        if (qtd < 1) throw new Error('A quantidade de cada item deve ser um inteiro maior que zero.');
+        porProduto.set(item.produtoId, (porProduto.get(item.produtoId) ?? 0) + qtd);
+    }
 
-        if (qtdAtual < item.quantidade) {
-            throw new Error(`Estoque insuficiente para o produto ID: ${item.produtoId}. Restam apenas ${qtdAtual} unidades.`);
+    // 1. Valida estoque suficiente para TODOS os itens antes de alterar qualquer coisa
+    const linhas = [];
+    for (const [produtoId, quantidade] of porProduto) {
+        const produto = await getProdutoById(produtoId);
+        const estoque = await getEstoqueByProdutoId(produtoId);
+        const disponivel = estoque ? Number(estoque.quantidade) : 0;
+        if (disponivel < quantidade) {
+            throw new Error(`Estoque insuficiente para "${produto.nome}". Restam apenas ${disponivel} unidades.`);
         }
+        linhas.push({ produtoId, quantidade, precoUnitario: produto.preco, disponivel });
     }
 
-    // 2. Abate do estoque
-    for (const item of pedidoData.itens) {
-        const estoque = await getEstoqueByProdutoId(item.produtoId);
-        const novaQtd = Number(estoque.quantidade) - Number(item.quantidade);
-        await updateEstoqueQuantidade(item.produtoId, novaQtd);
+    // 2. Abate do estoque (cada chamada recalcula o status do produto)
+    for (const linha of linhas) {
+        await updateEstoqueQuantidade(linha.produtoId, linha.disponivel - linha.quantidade);
     }
 
-    // 3. Calcula o total caso não tenha sido enviado
-    const totalCalculado = pedidoData.itens.reduce((acc, item) => {
-        return acc + (Number(item.quantidade) * Number(item.precoUnitario || 0));
-    }, 0);
-
-    // 4. Salva o pedido
+    // 3. Salva o pedido com o total calculado no servidor de regras
+    const itens = linhas.map(({ produtoId, quantidade, precoUnitario }) => ({ produtoId, quantidade, precoUnitario }));
     return await apiRequest('/pedidos', 'POST', {
-        ...pedidoData,
-        total: pedidoData.total ? Number(pedidoData.total) : totalCalculado,
+        cliente,
+        itens,
+        total: calcularTotal(itens),
         data: new Date().toISOString(),
-        status: pedidoData.status || 'Concluído'
+        status: 'Concluído',
     });
 }
 
 /**
- * Cancela um pedido e devolve as quantidades ao estoque
- * @param {string} pedidoId 
+ * Cancela um pedido e devolve as quantidades ao estoque.
+ * Produtos que já foram excluídos do catálogo são ignorados (não há o que repor).
+ * @param {string} pedidoId
  */
 export async function cancelarPedido(pedidoId) {
     const pedido = await getPedidoById(pedidoId);
 
-    if (pedido.status && pedido.status.startsWith('Cancelado')) {
+    if (pedidoCancelado(pedido)) {
         throw new Error('Este pedido já se encontra cancelado.');
     }
 
-    // 1. Devolve itens ao estoque
+    // Marca como cancelado ANTES de repor o estoque: se algo falhar no meio, nunca repomos duas vezes.
+    const atualizado = await apiRequest(`/pedidos/${encodeURIComponent(pedidoId)}`, 'PATCH', { status: 'Cancelado' });
+
     for (const item of pedido.itens) {
+        try {
+            await getProdutoById(item.produtoId);
+        } catch (erro) {
+            if (erro instanceof ApiError && erro.status === 404) continue;
+            throw erro;
+        }
         const estoque = await getEstoqueByProdutoId(item.produtoId);
-        const qtdAtual = estoque ? Number(estoque.quantidade) : 0;
-        await updateEstoqueQuantidade(item.produtoId, qtdAtual + Number(item.quantidade));
+        const atual = estoque ? Number(estoque.quantidade) : 0;
+        await updateEstoqueQuantidade(item.produtoId, atual + Number(item.quantidade));
     }
 
-    // 2. Atualiza status do pedido
-    return await apiRequest(`/pedidos/${pedidoId}`, 'PATCH', { status: 'Cancelado' });
+    return atualizado;
 }

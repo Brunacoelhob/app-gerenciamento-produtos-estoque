@@ -2,6 +2,8 @@ import { getEstoque, updateEstoqueQuantidade } from './services/estoque-service.
 import { getProdutos } from './services/produto-service.js';
 import { showToast } from './components/toast.js';
 import { getTableSkeleton } from './components/skeleton-loader.js';
+import { classeBadge } from './domain/regras.js';
+import { esc } from './utils/html.js';
 
 const tbody = document.getElementById('tb-estoque');
 const modal = document.getElementById('modal-estoque');
@@ -31,19 +33,17 @@ function renderTabela(estoqueLista, produtosMap) {
         const prod = produtosMap.get(e.produtoId) || { nome: 'Desconhecido', status: 'N/A' };
         const dataFmt = e.atualizadoEm ? new Date(e.atualizadoEm).toLocaleString('pt-BR') : '-';
 
-        let badgeClass = 'badge-disponivel';
-        if (prod.status === 'Estoque baixo') badgeClass = 'badge-baixo';
-        if (prod.status === 'Indisponível') badgeClass = 'badge-indisponivel';
+        const badgeClass = classeBadge(prod.status);
 
         return `
       <tr>
-        <td><code>${e.produtoId}</code></td>
-        <td><strong>${prod.nome}</strong></td>
-        <td><strong>${e.quantidade}</strong> unid.</td>
-        <td><span class="badge ${badgeClass}">${prod.status}</span></td>
+        <td><code>${esc(e.produtoId)}</code></td>
+        <td><strong>${esc(prod.nome)}</strong></td>
+        <td><strong>${esc(e.quantidade)}</strong> unid.</td>
+        <td><span class="badge ${badgeClass}">${esc(prod.status)}</span></td>
         <td>${dataFmt}</td>
         <td>
-          <button class="btn btn-secondary btn-edit-est" data-prodid="${e.produtoId}" data-nome="${prod.nome}" data-qtd="${e.quantidade}">
+          <button class="btn btn-secondary btn-edit-est" data-prodid="${esc(e.produtoId)}" data-nome="${esc(prod.nome)}" data-qtd="${esc(e.quantidade)}">
             Ajustar Quantidade
           </button>
         </td>
@@ -70,6 +70,10 @@ form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const prodId = document.getElementById('estoque-produto-id').value;
     const novaQtd = parseInt(document.getElementById('quantidade').value, 10);
+    if (!Number.isInteger(novaQtd) || novaQtd < 0) {
+        showToast('Informe uma quantidade inteira maior ou igual a zero.', 'error');
+        return;
+    }
 
     try {
         await updateEstoqueQuantidade(prodId, novaQtd);

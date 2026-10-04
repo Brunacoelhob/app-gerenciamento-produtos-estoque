@@ -3,6 +3,8 @@ import { getProdutos } from './services/produto-service.js';
 import { showToast } from './components/toast.js';
 import { confirmAction } from './components/modal-confirm.js';
 import { getTableSkeleton } from './components/skeleton-loader.js';
+import { pedidoCancelado } from './domain/regras.js';
+import { esc } from './utils/html.js';
 
 const tbody = document.getElementById('tb-pedidos');
 const modal = document.getElementById('modal-pedido');
@@ -29,7 +31,7 @@ function popularSelectProdutos(produtos) {
     selectProduto.innerHTML = '<option value="">Selecione um produto...</option>' +
         produtos
             .filter(p => p.status !== 'Indisponível')
-            .map(p => `<option value="${p.id}">${p.nome} - R$ ${Number(p.preco).toFixed(2)} (${p.status})</option>`)
+            .map(p => `<option value="${esc(p.id)}">${esc(p.nome)} - R$ ${Number(p.preco).toFixed(2)} (${esc(p.status)})</option>`)
             .join('');
 }
 
@@ -46,22 +48,22 @@ function renderTabela(pedidos) {
         const itensTexto = p.itens ? p.itens.map(i => {
             const prod = produtosMap.get(i.produtoId);
             const nomeProd = prod ? prod.nome : i.produtoId;
-            return `${i.quantidade}x ${nomeProd}`;
+            return `${esc(i.quantidade)}x ${esc(nomeProd)}`;
         }).join('<br>') : 'Sem itens';
 
-        const ehCancelado = p.status.includes('Cancelado');
+        const ehCancelado = pedidoCancelado(p);
         const badgeClass = ehCancelado ? 'badge-indisponivel' : 'badge-disponivel';
 
         return `
       <tr>
-        <td><code>${p.id}</code></td>
-        <td><strong>${p.cliente}</strong></td>
+        <td><code>${esc(p.id)}</code></td>
+        <td><strong>${esc(p.cliente)}</strong></td>
         <td>${dataFmt}</td>
         <td style="font-size: 0.85rem">${itensTexto}</td>
         <td><strong>R$ ${Number(p.total).toFixed(2)}</strong></td>
-        <td><span class="badge ${badgeClass}">${p.status}</span></td>
+        <td><span class="badge ${badgeClass}">${esc(p.status)}</span></td>
         <td>
-          ${!ehCancelado ? `<button class="btn btn-danger btn-cancelar-pedido" data-id="${p.id}">Cancelar</button>` : '<span style="color:var(--text-muted)">-</span>'}
+          ${!ehCancelado ? `<button class="btn btn-danger btn-cancelar-pedido" data-id="${esc(p.id)}">Cancelar</button>` : '<span style="color:var(--text-muted)">-</span>'}
         </td>
       </tr>
     `;
@@ -91,14 +93,8 @@ form.addEventListener('submit', async (e) => {
 
     const payload = {
         cliente,
-        itens: [
-            {
-                produtoId,
-                quantidade,
-                precoUnitario: produto.preco
-            }
-        ],
-        total: produto.preco * quantidade
+        // Preço e total são calculados pelas regras no momento da compra; o navegador só informa o que e quanto.
+        itens: [{ produtoId, quantidade }]
     };
 
     try {

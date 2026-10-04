@@ -1,0 +1,23 @@
+{
+  "name": "sistema-integrado-crud",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Dashboard e CRUD integrando Produtos, Estoque e Pedidos (front-end vanilla + json-server)",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "preparar-db": "node scripts/preparar-db.js",
+    "api": "json-server --watch db.json --port 3000",
+    "web": "http-server . -p 8080 -c-1 --silent",
+    "start": "npm run preparar-db && concurrently -k -n api,web \"npm:api\" \"npm:web\"",
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "http-server": "^14.1.1",
+    "json-server": "^0.17.4"
+  }
+}
